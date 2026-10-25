@@ -1,0 +1,30 @@
+{
+  "name": "nightborne_female",
+  "model_type": "vits",
+  "comment": "piper",
+  "language": "English",
+  "voice": "en-us",
+  "has_espeak": 1,
+  "n_speakers": 5,
+  "sample_rate": 22050,
+  "speakers": [
+    "spoken_sentinel",
+    "spoken_standard",
+    "nightborne_player",
+    "thalyssra",
+    "nightborne_citizen"
+  ],
+  "labels": [
+    "Sentinel",
+    "Standard",
+    "Player",
+    "Thalyssra",
+    "Citizen"
+  ],
+  "recipe": 2,
+  "inference": {
+    "noise_scale": 0.667,
+    "length_scale": 1.0,
+    "noise_w": 0.8
+  }
+}

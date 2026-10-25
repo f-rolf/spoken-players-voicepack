@@ -1,0 +1,32 @@
+{
+  "name": "darkiron_female",
+  "model_type": "vits",
+  "comment": "piper",
+  "language": "English",
+  "voice": "en-gb-scotland",
+  "has_espeak": 1,
+  "n_speakers": 6,
+  "sample_rate": 22050,
+  "speakers": [
+    "spoken_maternal",
+    "spoken_guard",
+    "darkiron_player",
+    "moira",
+    "briona_the_bloodthirsty",
+    "darkiron_citizen"
+  ],
+  "labels": [
+    "Maternal",
+    "Guard",
+    "Player",
+    "Moira",
+    "Briona",
+    "Citizen"
+  ],
+  "recipe": 2,
+  "inference": {
+    "noise_scale": 0.667,
+    "length_scale": 1.0,
+    "noise_w": 0.8
+  }
+}

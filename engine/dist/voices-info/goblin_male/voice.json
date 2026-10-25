@@ -1,0 +1,44 @@
+{
+  "name": "goblin_male",
+  "model_type": "vits",
+  "comment": "piper",
+  "language": "English",
+  "voice": "en-us",
+  "has_espeak": 1,
+  "n_speakers": 12,
+  "sample_rate": 22050,
+  "speakers": [
+    "spoken_zany",
+    "spoken_gruff",
+    "spoken_guard",
+    "goblin_player",
+    "gallywix",
+    "gazlowe",
+    "renzik_the_shiv",
+    "marin_noggenfogger",
+    "patch",
+    "skaggit",
+    "baron_revilgaz",
+    "goblin_citizen"
+  ],
+  "labels": [
+    "Zany",
+    "Gruff",
+    "Guard",
+    "Player",
+    "Gallywix",
+    "Gazlowe",
+    "Renzik",
+    "Noggenfogger",
+    "Patch",
+    "Skaggit",
+    "Revilgaz",
+    "Citizen"
+  ],
+  "recipe": 2,
+  "inference": {
+    "noise_scale": 0.667,
+    "length_scale": 1.0,
+    "noise_w": 0.8
+  }
+}

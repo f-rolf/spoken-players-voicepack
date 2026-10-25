@@ -1,0 +1,34 @@
+{
+  "name": "earthen_female",
+  "model_type": "vits",
+  "comment": "piper",
+  "language": "English",
+  "voice": "en-gb-scotland",
+  "has_espeak": 1,
+  "n_speakers": 7,
+  "sample_rate": 22050,
+  "speakers": [
+    "spoken_maternal",
+    "spoken_guard",
+    "earthen_player",
+    "adelgonn",
+    "rooktender_lufsela",
+    "dawn",
+    "earthen_citizen"
+  ],
+  "labels": [
+    "Maternal",
+    "Guard",
+    "Player",
+    "Adelgonn",
+    "Lufsela",
+    "Dawn",
+    "Citizen"
+  ],
+  "recipe": 2,
+  "inference": {
+    "noise_scale": 0.667,
+    "length_scale": 1.0,
+    "noise_w": 0.8
+  }
+}

@@ -1,0 +1,13 @@
+[package]
+name = "spoken_voice"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+sherpa-onnx = { version = "1.13.8", default-features = false, features = ["static"] }
+windows-core = "0.62"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Media_Speech", "Win32_Media_Audio", "Win32_System_Com", "Win32_System_Registry", "Win32_System_LibraryLoader", "Win32_System_SystemServices", "Win32_Globalization", "Win32_System_Diagnostics_Debug", "Win32_System_ProcessStatus", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_UI_Shell", "Win32_Security"] }

@@ -1,0 +1,32 @@
+{
+  "name": "worgen_female",
+  "model_type": "vits",
+  "comment": "piper",
+  "language": "English",
+  "voice": "en-gb-x-rp",
+  "has_espeak": 1,
+  "n_speakers": 6,
+  "sample_rate": 22050,
+  "speakers": [
+    "worgen_player",
+    "gilnean_player",
+    "tess",
+    "celestine_of_the_harvest",
+    "fenrae_the_cunning",
+    "worgen_citizen"
+  ],
+  "labels": [
+    "Player",
+    "Gilnean Player",
+    "Tess",
+    "Celestine",
+    "Fenrae",
+    "Citizen"
+  ],
+  "recipe": 2,
+  "inference": {
+    "noise_scale": 0.667,
+    "length_scale": 1.0,
+    "noise_w": 0.8
+  }
+}

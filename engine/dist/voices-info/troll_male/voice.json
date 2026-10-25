@@ -1,0 +1,32 @@
+{
+  "name": "troll_male",
+  "model_type": "vits",
+  "comment": "piper",
+  "language": "English",
+  "voice": "en-029",
+  "has_espeak": 1,
+  "n_speakers": 6,
+  "sample_rate": 22050,
+  "speakers": [
+    "player",
+    "spoken_shaman",
+    "spoken_dark",
+    "spoken_standard",
+    "rokhan",
+    "voljin"
+  ],
+  "labels": [
+    "Player",
+    "Shaman",
+    "Dark",
+    "Standard",
+    "Rokhan",
+    "Voljin"
+  ],
+  "recipe": 2,
+  "inference": {
+    "noise_scale": 0.667,
+    "length_scale": 1.0,
+    "noise_w": 0.8
+  }
+}

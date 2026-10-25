@@ -1,0 +1,11 @@
+# Build output
+/out/
+/installer/build/
+/engine/target/
+# The built engine, its certificate (both made by whoever builds and signs) and test output
+/engine/dist/spoken_voice.dll
+/engine/dist/spoken_voice_engine.cer
+/engine/tools/test_*.wav
+# Model packs to build with (-Packs): big, published on their own
+/engine/dist/voices-multi/
+/engine/dist/voices-test/

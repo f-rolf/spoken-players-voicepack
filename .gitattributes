@@ -1,0 +1,6 @@
+*.cmd text eol=crlf
+*.sh text eol=lf
+# The engine's data (espeak-ng's, the voices' tokens) is read byte for byte: never convert line ends
+engine/dist/** -text
+*.png binary
+*.ico binary

@@ -1,0 +1,38 @@
+{
+  "name": "draenei_male",
+  "model_type": "vits",
+  "comment": "piper",
+  "language": "English",
+  "voice": "en-us",
+  "has_espeak": 1,
+  "n_speakers": 9,
+  "sample_rate": 22050,
+  "speakers": [
+    "draenei_player",
+    "lightforged_player",
+    "velen",
+    "maraad",
+    "nobundo",
+    "grand_artificer_romuul",
+    "vindicator_boros",
+    "vindicator_baatul",
+    "draenei_citizen"
+  ],
+  "labels": [
+    "Player",
+    "Lightforged Player",
+    "Velen",
+    "Maraad",
+    "Nobundo",
+    "Romuul",
+    "Boros",
+    "Baatul",
+    "Citizen"
+  ],
+  "recipe": 2,
+  "inference": {
+    "noise_scale": 0.667,
+    "length_scale": 1.0,
+    "noise_w": 0.8
+  }
+}

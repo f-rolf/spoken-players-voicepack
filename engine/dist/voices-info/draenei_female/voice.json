@@ -1,0 +1,40 @@
+{
+  "name": "draenei_female",
+  "model_type": "vits",
+  "comment": "piper",
+  "language": "English",
+  "voice": "en-us",
+  "has_espeak": 1,
+  "n_speakers": 10,
+  "sample_rate": 22050,
+  "speakers": [
+    "draenei_player",
+    "lightforged_player",
+    "yrel",
+    "captain_fareeya",
+    "miall",
+    "archmage_tamuura",
+    "anchorite_lanna",
+    "talixae_flamewreath",
+    "samaara",
+    "draenei_citizen"
+  ],
+  "labels": [
+    "Player",
+    "Lightforged Player",
+    "Yrel",
+    "Fareeya",
+    "Miall",
+    "Tamuura",
+    "Lanna",
+    "Talixae",
+    "Samaara",
+    "Citizen"
+  ],
+  "recipe": 2,
+  "inference": {
+    "noise_scale": 0.667,
+    "length_scale": 1.0,
+    "noise_w": 0.8
+  }
+}

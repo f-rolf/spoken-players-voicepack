@@ -1,0 +1,32 @@
+{
+  "name": "pandaren_female",
+  "model_type": "vits",
+  "comment": "piper",
+  "language": "English",
+  "voice": "en-us",
+  "has_espeak": 1,
+  "n_speakers": 6,
+  "sample_rate": 22050,
+  "speakers": [
+    "pandaren_player",
+    "lili",
+    "aysa",
+    "taoshi",
+    "brewer_almai",
+    "number_nine_jia"
+  ],
+  "labels": [
+    "Player",
+    "Lili",
+    "Aysa",
+    "Taoshi",
+    "Almai",
+    "Jia"
+  ],
+  "recipe": 2,
+  "inference": {
+    "noise_scale": 0.667,
+    "length_scale": 1.0,
+    "noise_w": 0.8
+  }
+}

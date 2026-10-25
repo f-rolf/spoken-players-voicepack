@@ -1,0 +1,42 @@
+{
+  "name": "zandalari_male",
+  "model_type": "vits",
+  "comment": "piper",
+  "language": "English",
+  "voice": "en-029",
+  "has_espeak": 1,
+  "n_speakers": 11,
+  "sample_rate": 22050,
+  "speakers": [
+    "spoken_shaman",
+    "spoken_dark",
+    "zandalari_player",
+    "rastakhan",
+    "zandalari_religious",
+    "zandalari_lower_caste",
+    "hanzabu",
+    "hexlord_raal",
+    "akunda_the_exalted",
+    "zandalari_rogue",
+    "zandalari_citizen"
+  ],
+  "labels": [
+    "Shaman",
+    "Dark",
+    "Player",
+    "Rastakhan",
+    "Religious",
+    "Lower Caste",
+    "Hanzabu",
+    "Raal",
+    "Akunda",
+    "Rogue",
+    "Citizen"
+  ],
+  "recipe": 2,
+  "inference": {
+    "noise_scale": 0.667,
+    "length_scale": 1.0,
+    "noise_w": 0.8
+  }
+}
