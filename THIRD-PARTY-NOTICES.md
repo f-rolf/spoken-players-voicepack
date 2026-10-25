@@ -2,8 +2,8 @@
 
 The Spoken Players voice engine (`spoken_voice.dll`) and its installer are free software under the
 GNU General Public License, version 3 or (at your option) any later version: [LICENSE](LICENSE).
-They have to be: the engine has espeak-ng, which is GPL-3.0, built into it. Their complete source code
-is the repository these notices come with, linked from https://spokenplayers.sahnet.ee.
+They have to be: the engine has espeak-ng, which is GPL-3.0, built into it. Their complete source code:
+https://github.com/f-rolf/spoken-players-voicepack
 
 The engine is one DLL with the following built into it, each under its own license. The full texts are
 in [licenses/](licenses) (and, installed, in `C:\Program Files\Spoken Players\licenses`).
