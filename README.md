@@ -38,7 +38,7 @@ the PCs it installs on trust. `-Remove` takes the certificates out again. Sign a
 Double-click `Build Installer.cmd`, or run `tools\Build-Installer.ps1`. The setup lands in `out\`.
 By default it downloads the voice models from the official server, as the published setup does
 (`engine\dist\voices-info` names them, with their SHA-256). To install models you downloaded
-yourself, put each in its own folder in `engine\dist\voices-multi\` (`model.onnx`, `tokens.txt`,
+yourself (from https://huggingface.co/sahnetee/spoken-players), put each in its own folder in `engine\dist\voices-multi\` (`model.onnx`, `tokens.txt`,
 `voice.json`) and build with `-Packs engine\dist\voices-multi`: the setup then installs them from the
 `voices` folder beside it.
 
@@ -53,4 +53,4 @@ To try one voice without installing anything: `engine\tools\Test-Voice.ps1 -Voic
 
 GPL-3.0-or-later ([LICENSE](LICENSE)), as espeak-ng, which is built into the engine. The other
 components and their licenses: [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). The voice models are
-published separately, under their own terms.
+published separately, under their own terms: https://huggingface.co/sahnetee/spoken-players
