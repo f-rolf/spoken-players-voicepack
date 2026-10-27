@@ -17,7 +17,7 @@ speaks with small neural voice models, one per race and body type, each with sev
 | `engine/dist/espeak-ng-data/` | espeak-ng's data, which the engine reads at run time |
 | `engine/dist/voices-info/` | what the build needs of each published model: `voice.json`, `tokens.txt`, `model.onnx.sha256` |
 | `installer/` | the Inno Setup script (`SpokenPlayersVoicepack.iss`), its name (`common.iss`) and pictures |
-| `tools/Build-Installer.ps1` | builds the setup into `out/` |
+| `tools/Build-Installer.ps1` | builds the setup into `out/`, the models downloaded from Hugging Face |
 | `tools/voice-info.sh` | writes `voices-info` from a folder of model packs |
 
 ## The engine
@@ -90,18 +90,25 @@ uninstall. A build is signed by whoever built it: the published setup by its pub
 
 ## The installer
 
-- One component per race (by faction), plus leaders and murlocs. The setup holds the engine,
-  espeak-ng's data, each model's small files and the licenses; the models themselves are downloaded
-  from `-Url`'s `voices/` (named `<model>-<sha256 prefix>.onnx`, checked against their SHA-256), or
-  taken from a `voices` folder beside the setup.
+- First it asks which game the player plays: retail (every race but WoW Forever's Skyborne), WoW
+  Forever (its nine races) or both, each with the raid voices. Nothing is chosen for them; run again,
+  last time's choice is. The races page (one component per race, by faction, plus leaders and
+  murlocs) shows only when asked for, with the game's races ticked.
+- The setup holds the engine, espeak-ng's data, each model's small files and the licenses; the models
+  themselves are downloaded from Hugging Face (`resolve/<commit>/<model>/model.onnx`, the repository's
+  commit when the setup was built, checked against their SHA-256), or taken from a `voices` folder
+  beside the setup (`<model>-<sha256 prefix>.onnx`). The game page links the Hugging Face repository,
+  the Ready page lists the full address of every file to download, and the installing page shows each
+  one's as it downloads.
 - Run again, it updates: a model already installed with the same SHA-256 is kept, so only changed
   models are downloaded. Each installed model keeps its hash beside it (`model.onnx.sha256`), so this
   check costs nothing; one installed by an older setup is hashed once, on a progress page.
 - Before installing, it waits for WoW to let go of the engine: it tries to open `spoken_voice.dll`
   for writing, which Windows refuses while any program has it loaded.
 - Every install first removes all of its voices (`SpokenGroupVoice` = 1) and the models of races left
-  out, then registers the chosen ones, so nothing lingers. It remembers the races it offered, so a
-  newer setup has the races added since chosen.
+  out, then registers the chosen ones, so nothing lingers. It remembers the game chosen and the races
+  it offered (`HKLM\SOFTWARE\Spoken Players`: Game, Adjusted, Races), so a newer setup chooses the
+  same and adds the game's races added since.
 - Uninstalling removes the engine, the voices, the models and the certificate.
 
 ## How WoW uses it
