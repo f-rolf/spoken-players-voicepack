@@ -227,6 +227,22 @@ fn make_room(keep: &str) {
     }
 }
 
+/// Piper's sampling for a model whose voice.json does not set it: the noise of the sound itself
+/// (`noise_scale`) and of each sound's length (`noise_w`), below Piper's own 0.667 and 0.8.
+const NOISE_SCALE: f32 = 0.6;
+const NOISE_W: f32 = 0.65;
+const LENGTH_SCALE: f32 = 1.0;
+
+/// A number from the model's voice.json (`"inference": {"noise_scale": 0.6, ...}`, as its pack has
+/// it), else `default`. The keys are unique in that file, so a plain search does; no JSON parser for
+/// three numbers.
+fn inference(info: &str, key: &str, default: f32) -> f32 {
+    let Some(at) = info.find(&format!("\"{key}\"")) else { return default };
+    let rest = info[at + key.len() + 2..].trim_start().strip_prefix(':').unwrap_or("").trim_start();
+    let end = rest.find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-')).unwrap_or(rest.len());
+    rest[..end].parse().ok().filter(|v: &f32| v.is_finite() && *v >= 0.0).unwrap_or(default)
+}
+
 fn load_model(model_dir: &str, data_dir: &str) -> Option<Arc<Model>> {
     let key = format!("{model_dir}|{data_dir}");
     let slot = slots().lock().ok()?.entry(key.clone())
@@ -242,15 +258,18 @@ fn load_model(model_dir: &str, data_dir: &str) -> Option<Arc<Model>> {
     }
     log::write(&format!("loading {model_dir} ..."));
     let started = Instant::now();
+    let info = std::fs::read_to_string(format!("{model_dir}\\voice.json")).unwrap_or_default();
+    let (noise_scale, noise_w, length_scale) = (inference(&info, "noise_scale", NOISE_SCALE),
+        inference(&info, "noise_w", NOISE_W), inference(&info, "length_scale", LENGTH_SCALE));
     let config = OfflineTtsConfig {
         model: OfflineTtsModelConfig {
             vits: OfflineTtsVitsModelConfig {
                 model: Some(format!("{model_dir}\\model.onnx")),
                 tokens: Some(format!("{model_dir}\\tokens.txt")),
                 data_dir: Some(data_dir.to_string()),
-                noise_scale: 0.667,
-                noise_scale_w: 0.8,
-                length_scale: 1.0,
+                noise_scale,
+                noise_scale_w: noise_w,
+                length_scale,
                 ..Default::default()
             },
             num_threads: 2,
@@ -271,7 +290,8 @@ fn load_model(model_dir: &str, data_dir: &str) -> Option<Arc<Model>> {
     let model = Arc::new(Model { tts, sample_rate, speakers, busy: Mutex::new(()) });
     *cell = Some(model.clone());
     drop(cell);
-    log::write(&format!("loaded {model_dir}: {sample_rate} Hz, {speakers} speaker(s), {:?} ({})", started.elapsed(), memory()));
+    log::write(&format!("loaded {model_dir}: {sample_rate} Hz, {speakers} speaker(s), noise {noise_scale}/{noise_w}, {:?} ({})",
+        started.elapsed(), memory()));
     make_room(&key);
     Some(model)
 }

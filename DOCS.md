@@ -58,8 +58,10 @@ recognises its voices to remove them. SAPI lists machine-wide voices only, not a
 
 A model is a folder: `model.onnx` (a Piper VITS model, about 74 MB, with the metadata sherpa-onnx
 reads), `tokens.txt` (its phoneme table) and `voice.json` (its espeak-ng voice, such as `en-us` or
-`en-029`, and its speakers in ID order with their names and labels). espeak-ng turns the text into
-phonemes with that voice, the model turns the phonemes into audio.
+`en-029`, its speakers in ID order with their names and labels, and under `inference` how the model
+is sampled: `noise_scale`, `noise_w`, `length_scale`, read when the model loads; 0.6, 0.65 and 1 when
+missing). espeak-ng turns the text into phonemes with that voice, the model turns the phonemes into
+audio.
 
 ### Memory
 
