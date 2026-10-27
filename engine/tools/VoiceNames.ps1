@@ -5,7 +5,7 @@
     Get-ModelVoice and Get-SpokenVoices on a model's folder.
 
 .DESCRIPTION
-    Each model is one Windows voice, "Spoken Players Dwarf Male", "Spoken Players Leaders": WoW looks
+    Each model is one Windows voice, "Spoken Players Dwarf Male", "Spoken Players Leader Voices": WoW looks
     through every installed voice several times over for each one while it loads (a voice per speaker,
     300 of them, held it up for half a minute), so the speakers are not voices of their own. The addon
     picks one by a code at the start of the text ({sp:3}, the speaker's index), which the engine reads.
@@ -33,8 +33,9 @@ $RaceNames = @{ human = 'Human'; dwarf = 'Dwarf'; nightelf = 'Night Elf'; gnome 
 # Models that are no race (the raid leader's and raid warnings' voices), what their voices are called,
 # and their speakers' names where the title-cased speaker name would not do.
 $OtherModels = @{ leaders = 'Leader'; murloc = 'Murloc' }
-$OtherSpeakers = @{ lichking = 'Lich King'; kiljaeden = "Kil'jaeden"; murloc = ''; babymurloc = 'Baby' }
-$FemaleSpeakers = @('sylvanas')
+$OtherSpeakers = @{ lichking = 'Lich King'; kiljaeden = "Kil'jaeden"; kelthuzad = "Kel'Thuzad"; guldan = "Gul'dan";
+                   nzoth = "N'Zoth"; murloc = ''; babymurloc = 'Baby' }
+$FemaleSpeakers = @('sylvanas', 'alexstrasza')
 
 # What a speaker of a multi-speaker model is called in its voice's name: its label in voice.json
 # (to_sherpa.py: "Tamuura", "Demon Hunter Player"), else from its speaker name, for packs made before
@@ -53,9 +54,13 @@ function Test-PackFinished([string]$folder) {
     -not (@('model.onnx', 'tokens.txt', 'voice.json') | Where-Object { -not (Test-Path (Join-Path $folder $_)) })
 }
 
-# The Windows voice of the model in $folder: Name ("Spoken Players Orc Male", "Spoken Players Leaders",
+# The Windows voice of the model in $folder: Name ("Spoken Players Orc Male", "Spoken Players Leader Voices",
 # "Spoken Players Dwarf Male Quests") and Gender; nothing for a folder Get-SpokenVoices skips.
-$OtherVoiceNames = @{ leaders = 'Spoken Players Leaders'; murloc = 'Spoken Players Murlocs' }
+# The retrained leader model (2026-10-27, other speakers in another order) is "Spoken Players Leader
+# Voices", not "Spoken Players Leaders" as the first one was: the addon knows a model's speakers only by
+# its voice's name, so it can speak with either (and an addon older than this name takes it for a leader
+# voice, "Spoken Leader Voices", never a player's).
+$OtherVoiceNames = @{ leaders = 'Spoken Players Leader Voices'; murloc = 'Spoken Players Murlocs' }
 function Get-ModelVoice([string]$folder) {
     $model = Split-Path $folder -Leaf
     if ($OtherVoiceNames.ContainsKey($model)) { return [pscustomobject]@{ Name = $OtherVoiceNames[$model]; Gender = 'Male' } }
