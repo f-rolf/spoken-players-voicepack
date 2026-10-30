@@ -5,9 +5,9 @@
 
 .DESCRIPTION
     Needs Inno Setup 6 (ISCC.exe) and the signed engine (engine\dist\spoken_voice.dll,
-    engine\tools\Sign-Engine.ps1). Takes every voice, each from its pack in engine\dist\voices-multi
-    (model.onnx, tokens.txt and voice.json in a folder per model, as published) when it is there,
-    else from engine\dist\voices-info, and:
+    engine\tools\Sign-Engine.ps1). Takes every voice, each as published (engine\dist\voices-info)
+    when it is, else from its pack in engine\dist\voices-multi (model.onnx, tokens.txt and voice.json
+    in a folder per model, as published; -Local: the packs first, for your own or changed ones), and:
       - checks that Hugging Face has each model as it is here (by SHA-256), and has the setup download
         it from there, from the repository's commit at build time: a model changed later on Hugging
         Face never reaches a setup built before (it would fail its hash check)
@@ -24,8 +24,8 @@
 
     engine\dist\voices-info (in git) describes the published models: each one's voice.json, tokens.txt
     and model.onnx.sha256 (its SHA-256 and size), all the build needs of a model not packed on this PC
-    (tools/voice-info.sh writes it from the packs), so a setup built here asks for the models packed
-    here, and for the published ones for the rest.
+    (tools/voice-info.sh writes it from the packs), so a setup built here asks for the published
+    models, and for the ones packed here only where none is published (or with -Local).
 
 .EXAMPLE
     .\Build-Installer.ps1
@@ -50,9 +50,11 @@ $Root = Split-Path $PSScriptRoot -Parent
 $Dist = Join-Path $Root 'engine\dist'
 $Installer = Join-Path $Root 'installer'
 $Build = Join-Path $Installer 'build'
-# Each model from its pack here (voices-multi) when it has one, else as published (voices-info, in
-# git). -Packs: from that one folder only.
-$Sources = $(if ($Packs) { @($Packs) } else { @((Join-Path $Dist 'voices-multi'), (Join-Path $Dist 'voices-info')) })
+# Each model as published (voices-info, in git) when it is, so a pack left here from before never goes
+# in for a model retrained since; one not published yet from its pack here (voices-multi). -Local: the
+# packs here first, to try them. -Packs: from that one folder only.
+$PacksHere, $InfoHere = (Join-Path $Dist 'voices-multi'), (Join-Path $Dist 'voices-info')
+$Sources = $(if ($Packs) { @($Packs) } elseif ($Local) { @($PacksHere, $InfoHere) } else { @($InfoHere, $PacksHere) })
 function Test-Files([string]$dir, [string[]]$files) {
     -not ($files | Where-Object { -not (Test-Path (Join-Path $dir $_)) })
 }
