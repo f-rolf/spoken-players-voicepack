@@ -1,0 +1,5 @@
+// SpokenPlayersVoicepack-Wine.exe's resources: the voicepack's icon, and sapifix.dll and the
+// certificate it is signed with (built first, into out\wine\), which it installs and trusts.
+1 ICON "../installer/art/icon.ico"
+SAPIFIX RCDATA "../out/wine/sapifix.dll"
+SAPIFIXCER RCDATA "../out/wine/sapifix.cer"
