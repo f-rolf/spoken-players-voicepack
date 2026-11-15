@@ -72,6 +72,23 @@ in a tenth of the PC's RAM (8 GB: 7, 16 GB: 14, 32 GB: 29); past that, the one a
 is unloaded, never one loading or speaking. `MaxModels` (DWORD) under `HKLM\SOFTWARE\Spoken Players`
 sets the number instead (the environment variable `SPOKEN_VOICE_MAX_MODELS` too, for trying it out).
 
+### Loading ahead
+
+In the game (a program named `Wow*.exe`), the engine keeps a record of which models spoke, how often
+and how lately: `usage.txt` beside its log, one model a line (score, lines, last spoken as Unix time,
+`ModelDir`, `DataDir`; the score counts lines, each weighing half as much a week on). Lines are added
+every 30 s, so a game closed right after a line may miss it; lines said at volume 0 (the addon's
+warm-up lines) don't count, and models no longer installed or unheard for weeks drop out. A minute
+after the engine was loaded, well after the game's own loading, one thread at low priority loads the
+record's models, most used first, one at a time, each only once no line has been spoken or loaded for
+1.5 s, and only into room the model limit leaves free, with 1.5 GB of RAM to spare. It never unloads
+a model to make room, and a model loaded ahead and not asked for since is the first to go when a line
+needs the place. A line whose model isn't loaded loads it at once on its own thread; one whose model
+is being loaded ahead waits for that load and raises that thread's priority meanwhile. It runs once
+per game process. `Preload` (DWORD) 0 under `HKLM\SOFTWARE\Spoken Players` turns it off;
+`SPOKEN_VOICE_PRELOAD` does too at 0, and at any other number turns it on in any program, that many
+seconds after loading (for trying it out).
+
 ### Log
 
 `%LOCALAPPDATA%\SpokenVoice\engine.log` (from Windows' known folder; failing that `AppData\LocalLow`,

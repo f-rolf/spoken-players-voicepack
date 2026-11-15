@@ -6,6 +6,12 @@
 //! model with several speakers, the speaker (`SpeakerId`). Models are loaded once per process and
 //! shared by every utterance that uses them; speech is written sentence by sentence as it is made.
 //!
+//! In the game, the engine also keeps a record of which models spoke, how often and how lately
+//! (`usage.txt` beside its log), and a minute after it was loaded, loads the most used of them ahead
+//! on a thread of its own: one at a time, at low priority, only while no line is being spoken, and
+//! only into room the model limit leaves free. A line whose model is not loaded still loads it at
+//! once, ahead of that thread.
+//!
 //! Model loads and anything that went wrong are always logged. With the log's `verbose` switch on,
 //! every call the program makes into the engine is too, with how long it took, on which thread, and
 //! from where (the modules on the calling thread's stack, as module+offset): what the engine is asked
@@ -17,8 +23,9 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Instant;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock, TryLockError};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use sherpa_onnx::{GenerationConfig, OfflineTts, OfflineTtsConfig, OfflineTtsModelConfig, OfflineTtsVitsModelConfig};
 use windows::Win32::Foundation::{CLASS_E_CLASSNOTAVAILABLE, CLASS_E_NOAGGREGATION, E_FAIL, E_POINTER, HMODULE, S_FALSE};
@@ -33,7 +40,8 @@ use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTAT
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::Security::{GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation, TOKEN_MANDATORY_LABEL,
     TOKEN_QUERY, TokenIntegrityLevel};
-use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+use windows::Win32::System::Threading::{GetCurrentProcess, GetCurrentThreadId, OpenProcessToken, OpenThread,
+    SetThreadPriority, THREAD_PRIORITY, THREAD_PRIORITY_LOWEST, THREAD_PRIORITY_NORMAL, THREAD_SET_INFORMATION};
 use windows::core::{BOOL, GUID, HRESULT, IUnknown, Interface, PCWSTR, Ref, Result, implement, w};
 
 /// This DLL, set when it is loaded: its frames are left out of the callers logged.
@@ -117,6 +125,7 @@ fn announce() {
         let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default();
         log::write(&format!("engine loaded into {exe} ({:?} before its first use; {}; integrity {}; log in {:?})",
             log::start().elapsed(), memory(), integrity(), log::folder()));
+        start_preloader();
     });
 }
 
@@ -161,6 +170,8 @@ fn take_speaker(parts: &mut Vec<Part>, speakers: i32) -> Option<i32> {
 struct Slot {
     model: Mutex<Option<Arc<Model>>>,
     used: AtomicU64,
+    /// Being loaded by the preloader (whose thread a line waiting for it hurries along).
+    ahead: AtomicBool,
 }
 
 fn slots() -> &'static Mutex<HashMap<String, Arc<Slot>>> {
@@ -168,8 +179,21 @@ fn slots() -> &'static Mutex<HashMap<String, Arc<Slot>>> {
     SLOTS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Ticks for "last asked for": a count, not a time.
-static CLOCK: AtomicU64 = AtomicU64::new(0);
+fn slot(key: &str) -> Option<Arc<Slot>> {
+    Some(slots().lock().ok()?.entry(key.to_string())
+        .or_insert_with(|| Arc::new(Slot { model: Mutex::new(None), used: AtomicU64::new(0), ahead: AtomicBool::new(false) }))
+        .clone())
+}
+
+/// Ticks for "last asked for": a count, not a time. Lines' ticks start above AHEAD_TICKS; a model
+/// loaded ahead and not asked for since stays below, so it is the first to make room.
+static CLOCK: AtomicU64 = AtomicU64::new(AHEAD_TICKS);
+const AHEAD_TICKS: u64 = 1 << 16;
+
+/// Models loaded, counting one being loaded.
+fn loaded_count(map: &HashMap<String, Arc<Slot>>) -> usize {
+    map.values().filter(|slot| slot.model.try_lock().map(|model| model.is_some()).unwrap_or(true)).count()
+}
 
 /// What a loaded model takes in RAM, about: 74 MB of weights and onnxruntime's graph and buffers
 /// around them (measured 2026-10-25: 101 to 127 MB each, 48 models).
@@ -203,12 +227,12 @@ fn max_models() -> usize {
 }
 
 /// Over the limit (max_models), the models asked for longest ago are unloaded, but never `keep` (the
-/// one just loaded), one being loaded or one speaking. A model an engine instance still holds stays
-/// in memory until that instance lets go of it; it is only out of the cache.
+/// one just loaded for a line; "" after loading one ahead), one being loaded or one speaking. Models
+/// loaded ahead and not asked for since go first. A model an engine instance still holds stays in
+/// memory until that instance lets go of it; it is only out of the cache.
 fn make_room(keep: &str) {
     let Ok(map) = slots().lock() else { return };
-    let loaded = |slot: &Slot| slot.model.try_lock().map(|model| model.is_some()).unwrap_or(true);
-    let mut count = map.values().filter(|slot| loaded(slot)).count();
+    let mut count = loaded_count(&map);
     let limit = max_models();
     while count > limit {
         let oldest = map.iter()
@@ -243,20 +267,70 @@ fn inference(info: &str, key: &str, default: f32) -> f32 {
     rest[..end].parse().ok().filter(|v: &f32| v.is_finite() && *v >= 0.0).unwrap_or(default)
 }
 
+/// Counts itself in a counter while it lives (a panic included).
+struct Counted(&'static AtomicU32);
+
+impl Counted {
+    fn new(counter: &'static AtomicU32) -> Self {
+        counter.fetch_add(1, Ordering::Relaxed);
+        Counted(counter)
+    }
+}
+
+impl Drop for Counted {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+/// Lines being spoken, and models being loaded for a line: the preloader waits while there are any.
+static SPEAKING: AtomicU32 = AtomicU32::new(0);
+static LOADING: AtomicU32 = AtomicU32::new(0);
+/// When a line last started or ended, in ms since the engine was loaded.
+static LAST_LINE: AtomicU64 = AtomicU64::new(0);
+
+fn since_start_ms() -> u64 {
+    log::start().elapsed().as_millis() as u64
+}
+
+/// The model for a line: from the cache, or loaded now (at once, on the line's own thread, whatever
+/// the preloader is doing; if the preloader is loading this very model, the line waits for that and
+/// raises the preloader's priority meanwhile).
 fn load_model(model_dir: &str, data_dir: &str) -> Option<Arc<Model>> {
     let key = format!("{model_dir}|{data_dir}");
-    let slot = slots().lock().ok()?.entry(key.clone())
-        .or_insert_with(|| Arc::new(Slot { model: Mutex::new(None), used: AtomicU64::new(0) })).clone();
+    let slot = slot(&key)?;
     slot.used.store(CLOCK.fetch_add(1, Ordering::Relaxed) + 1, Ordering::Relaxed);
     let waited = Instant::now();
-    let mut cell = slot.model.lock().ok()?;
+    let mut cell = match slot.model.try_lock() {
+        Ok(cell) => cell,
+        Err(TryLockError::WouldBlock) => {
+            if slot.ahead.load(Ordering::Relaxed) {
+                preloader_priority(THREAD_PRIORITY_NORMAL);
+                log::write(&format!("a line wants {model_dir}, which is being loaded ahead: hurrying that along"));
+            }
+            slot.model.lock().ok()?
+        }
+        Err(TryLockError::Poisoned(_)) => return None,
+    };
     if waited.elapsed().as_millis() >= 10 {
         log::write(&format!("waited {:?} for {model_dir} to finish loading", waited.elapsed()));
     }
     if let Some(model) = cell.as_ref() {
         return Some(model.clone());
     }
-    log::write(&format!("loading {model_dir} ..."));
+    let model = {
+        let _loading = Counted::new(&LOADING);
+        create_model(model_dir, data_dir, false)
+    }?;
+    *cell = Some(model.clone());
+    drop(cell);
+    make_room(&key);
+    Some(model)
+}
+
+/// Loads a model from its folder (`ahead`: for the preloader, which only the log tells apart).
+fn create_model(model_dir: &str, data_dir: &str, ahead: bool) -> Option<Arc<Model>> {
+    log::write(&format!("loading {model_dir}{} ...", if ahead { " ahead" } else { "" }));
     let started = Instant::now();
     let info = std::fs::read_to_string(format!("{model_dir}\\voice.json")).unwrap_or_default();
     let (noise_scale, noise_w, length_scale) = (inference(&info, "noise_scale", NOISE_SCALE),
@@ -288,18 +362,271 @@ fn load_model(model_dir: &str, data_dir: &str) -> Option<Arc<Model>> {
     let sample_rate = u32::try_from(tts.sample_rate()).unwrap_or(DEFAULT_RATE);
     let speakers = tts.num_speakers().max(1);
     let model = Arc::new(Model { tts, sample_rate, speakers, busy: Mutex::new(()) });
-    *cell = Some(model.clone());
-    drop(cell);
-    log::write(&format!("loaded {model_dir}: {sample_rate} Hz, {speakers} speaker(s), noise {noise_scale}/{noise_w}, {:?} ({})",
-        started.elapsed(), memory()));
-    make_room(&key);
+    log::write(&format!("loaded {model_dir}{}: {sample_rate} Hz, {speakers} speaker(s), noise {noise_scale}/{noise_w}, {:?} ({})",
+        if ahead { " ahead" } else { "" }, started.elapsed(), memory()));
     Some(model)
+}
+
+// ---- Loading ahead: the usage record and the preloader ----
+
+/// Whether this process keeps the usage record and loads ahead, and how long after the engine was
+/// loaded it starts: in the game (an exe named Wow*: Wow.exe, WowClassic.exe, ...) a minute after,
+/// elsewhere (Test-Voice.ps1, Narrator, other programs) never. `Preload` (DWORD) under HKLM\SOFTWARE\Spoken
+/// Players at 0 turns it off; the environment variable SPOKEN_VOICE_PRELOAD does too at 0, and at
+/// any other number turns it on in any program, starting that many seconds after (for trying it out).
+fn preload_after() -> Option<Duration> {
+    static AFTER: OnceLock<Option<Duration>> = OnceLock::new();
+    *AFTER.get_or_init(|| {
+        let mut chosen = 1u32;
+        let mut size = size_of::<u32>() as u32;
+        let set = unsafe {
+            RegGetValueW(HKEY_LOCAL_MACHINE, w!("SOFTWARE\\Spoken Players"), w!("Preload"), RRF_RT_REG_DWORD, None,
+                Some(&mut chosen as *mut u32 as *mut c_void), Some(&mut size))
+        };
+        if set.is_ok() && chosen == 0 {
+            log::write("loading ahead is off (Preload is 0)");
+            return None;
+        }
+        if let Some(seconds) = std::env::var("SPOKEN_VOICE_PRELOAD").ok().and_then(|v| v.trim().parse::<u64>().ok()) {
+            if seconds == 0 {
+                log::write("loading ahead is off (SPOKEN_VOICE_PRELOAD is 0)");
+                return None;
+            }
+            return Some(Duration::from_secs(seconds));
+        }
+        let exe = std::env::current_exe().ok()?;
+        let name = exe.file_name()?.to_string_lossy().to_ascii_lowercase();
+        name.starts_with("wow").then_some(PRELOAD_AFTER)
+    })
+}
+
+/// How long after the engine was loaded the preloader starts: well after the game's own loading.
+const PRELOAD_AFTER: Duration = Duration::from_secs(60);
+/// How long no line must have started or ended before the preloader loads a model, and its pause
+/// between two models.
+const QUIET_MS: u64 = 1500;
+const BETWEEN: Duration = Duration::from_millis(500);
+/// The RAM that must be left free (besides the model limit) for the preloader to load another.
+const MIN_FREE_MB: u64 = 1536;
+/// How often lines spoken are added to the usage record.
+const SAVE_EVERY: Duration = Duration::from_secs(30);
+/// A line's weight in the record halves in this many days: often counts, lately more.
+const HALF_LIFE_DAYS: f64 = 7.0;
+
+fn now_secs() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+/// One model's entry in the usage record: its score (lines spoken, each halving in weight every
+/// HALF_LIFE_DAYS), all its lines, and when it last spoke (Unix seconds).
+#[derive(Clone, Copy, Default)]
+struct Usage {
+    score: f64,
+    lines: u64,
+    last: u64,
+}
+
+impl Usage {
+    /// The score as it stands at `now`.
+    fn score_at(&self, now: u64) -> f64 {
+        self.score * 0.5f64.powf(now.saturating_sub(self.last) as f64 / 86400.0 / HALF_LIFE_DAYS)
+    }
+}
+
+/// The record beside the log, %LOCALAPPDATA%\SpokenVoice\usage.txt: shared by every game running.
+fn usage_path() -> Option<PathBuf> {
+    log::folder().map(|folder| folder.join("usage.txt"))
+}
+
+/// Lines spoken since the record was last written, by (ModelDir, DataDir): (lines, when the last).
+fn unsaved() -> &'static Mutex<HashMap<(String, String), (u64, u64)>> {
+    static UNSAVED: OnceLock<Mutex<HashMap<(String, String), (u64, u64)>>> = OnceLock::new();
+    UNSAVED.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn note_use(model_dir: &str, data_dir: &str) {
+    if preload_after().is_none() {
+        return;
+    }
+    if let Ok(mut unsaved) = unsaved().lock() {
+        let entry = unsaved.entry((model_dir.to_string(), data_dir.to_string())).or_default();
+        entry.0 += 1;
+        entry.1 = now_secs();
+    }
+}
+
+/// The record as written: `score <tab> lines <tab> last <tab> ModelDir <tab> DataDir` a model.
+fn read_usage() -> HashMap<(String, String), Usage> {
+    let mut record = HashMap::new();
+    let Some(text) = usage_path().and_then(|path| std::fs::read_to_string(path).ok()) else { return record };
+    for line in text.lines().filter(|line| !line.starts_with('#')) {
+        let fields: Vec<&str> = line.split('\t').collect();
+        let [score, lines, last, model_dir, data_dir] = fields[..] else { continue };
+        let (Ok(score), Ok(lines), Ok(last)) = (score.parse::<f64>(), lines.parse::<u64>(), last.parse::<u64>()) else {
+            continue;
+        };
+        if score.is_finite() && score >= 0.0 {
+            record.insert((model_dir.to_string(), data_dir.to_string()), Usage { score, lines, last });
+        }
+    }
+    record
+}
+
+/// Adds the lines spoken since to the record and writes it anew (through a file of its own, renamed
+/// over it), leaving out models no longer installed or not heard for weeks. Nothing when no line was
+/// spoken since.
+fn save_usage() {
+    let pending = match unsaved().lock() {
+        Ok(mut unsaved) if !unsaved.is_empty() => std::mem::take(&mut *unsaved),
+        _ => return,
+    };
+    let Some(path) = usage_path() else { return };
+    let now = now_secs();
+    let mut record = read_usage();
+    for ((model_dir, data_dir), (lines, last)) in pending {
+        let usage = record.entry((model_dir, data_dir)).or_default();
+        let at = last.max(usage.last);
+        usage.score = usage.score_at(at) + lines as f64;
+        usage.lines += lines;
+        usage.last = at;
+    }
+    let mut entries: Vec<_> = record.into_iter()
+        .filter(|((model_dir, _), usage)| usage.score_at(now) >= 0.01 && Path::new(model_dir).join("model.onnx").is_file())
+        .collect();
+    entries.sort_by(|a, b| b.1.score_at(now).total_cmp(&a.1.score_at(now)));
+    let mut text = String::from("# Spoken Players: the voices' models by use, for loading the likeliest ahead. Score (lines, \
+        each weighing half as much a week on), lines, last spoken (Unix time), ModelDir, DataDir.\n");
+    for ((model_dir, data_dir), usage) in &entries {
+        text.push_str(&format!("{:.3}\t{}\t{}\t{model_dir}\t{data_dir}\n", usage.score, usage.lines, usage.last));
+    }
+    let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
+    if std::fs::write(&temporary, text).and_then(|()| std::fs::rename(&temporary, &path)).is_err() {
+        let _ = std::fs::remove_file(&temporary);
+        log::write(&format!("could not write {}", path.display()));
+    }
+}
+
+/// The preloader's thread, for raising its priority while a line waits for it.
+static PRELOADER: OnceLock<usize> = OnceLock::new();
+
+fn preloader_priority(priority: THREAD_PRIORITY) {
+    if let Some(&thread) = PRELOADER.get() {
+        let _ = unsafe { SetThreadPriority(HANDLE(thread as *mut c_void), priority) };
+    }
+}
+
+/// Starts the preloader's thread, in the game only (preload_after).
+fn start_preloader() {
+    let Some(after) = preload_after() else { return };
+    let started = std::thread::Builder::new().name("spoken model preloader".into()).spawn(move || {
+        if catch_unwind(|| preloader(after)).is_err() {
+            log::write("panic in the preloader: no more loading ahead in this game");
+        }
+    });
+    if started.is_err() {
+        log::write("could not start the preloader: models load on their first lines");
+    }
+}
+
+/// Free physical memory, in MB.
+fn free_mb() -> u64 {
+    let mut status = MEMORYSTATUSEX { dwLength: size_of::<MEMORYSTATUSEX>() as u32, ..Default::default() };
+    if unsafe { GlobalMemoryStatusEx(&mut status) }.is_ok() { status.ullAvailPhys >> 20 } else { 0 }
+}
+
+/// Sleeps `duration`, writing the usage record whenever it is due.
+fn idle(duration: Duration, saved: &mut Instant) {
+    std::thread::sleep(duration);
+    if saved.elapsed() >= SAVE_EVERY {
+        save_usage();
+        *saved = Instant::now();
+    }
+}
+
+/// The preloader: at low priority, waits `after` from the engine's loading, then loads the models in
+/// the usage record, most used first, one at a time, each only while no line is being spoken or loading
+/// its model and none has for QUIET_MS, and only while the model limit leaves room and the PC has
+/// MIN_FREE_MB to spare; it never unloads one to make room. Then it keeps writing the record.
+fn preloader(after: Duration) {
+    unsafe {
+        if let Ok(thread) = OpenThread(THREAD_SET_INFORMATION, false, GetCurrentThreadId()) {
+            let _ = PRELOADER.set(thread.0 as usize);
+        }
+    }
+    preloader_priority(THREAD_PRIORITY_LOWEST);
+    let mut saved = Instant::now();
+    while log::start().elapsed() < after {
+        idle(Duration::from_secs(1), &mut saved);
+    }
+    save_usage();
+    saved = Instant::now();
+    let now = now_secs();
+    let mut record: Vec<_> = read_usage().into_iter()
+        .filter(|((model_dir, _), _)| Path::new(model_dir).join("model.onnx").is_file())
+        .collect();
+    record.sort_by(|a, b| b.1.score_at(now).total_cmp(&a.1.score_at(now)));
+    let limit = max_models();
+    let loaded = slots().lock().map(|map| loaded_count(&map)).unwrap_or(limit);
+    let name = |model_dir: &str| Path::new(model_dir).file_name().map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| model_dir.to_string());
+    log::write(&format!("loading ahead: {} model(s) in the usage record ({}), {loaded} of up to {limit} loaded",
+        record.len(), record.iter().map(|((model_dir, _), usage)| format!("{} {:.1}", name(model_dir), usage.score_at(now)))
+            .collect::<Vec<_>>().join(", ")));
+    let started = Instant::now();
+    let mut count = 0;
+    for (rank, ((model_dir, data_dir), _)) in record.iter().enumerate() {
+        let key = format!("{model_dir}|{data_dir}");
+        let Some(slot) = slot(&key) else { break };
+        if slot.model.try_lock().map(|model| model.is_some()).unwrap_or(true) {
+            continue;
+        }
+        // Quiet first: nothing spoken or loading for a line, for a moment.
+        while SPEAKING.load(Ordering::Relaxed) > 0 || LOADING.load(Ordering::Relaxed) > 0
+            || since_start_ms().saturating_sub(LAST_LINE.load(Ordering::Relaxed)) < QUIET_MS {
+            idle(Duration::from_millis(250), &mut saved);
+        }
+        if slots().lock().map(|map| loaded_count(&map)).unwrap_or(limit) >= limit {
+            log::write(&format!("loading ahead stops: {limit} model(s) loaded, the limit"));
+            break;
+        }
+        if free_mb() < MIN_FREE_MB + MODEL_MB {
+            log::write(&format!("loading ahead stops: {} MB of RAM free", free_mb()));
+            break;
+        }
+        // Loaded already, or a line loading it: nothing to do.
+        let Ok(mut cell) = slot.model.try_lock() else { continue };
+        if cell.is_some() {
+            continue;
+        }
+        slot.ahead.store(true, Ordering::Relaxed);
+        // Below every line's tick (the less used, the lower), unless a line asked for it before.
+        slot.used.fetch_max(AHEAD_TICKS - 1 - rank as u64, Ordering::Relaxed);
+        let model = create_model(model_dir, data_dir, true);
+        let made = model.is_some();
+        *cell = model;
+        slot.ahead.store(false, Ordering::Relaxed);
+        drop(cell);
+        preloader_priority(THREAD_PRIORITY_LOWEST);
+        if made {
+            count += 1;
+            // A line loading another meanwhile may have filled the last place: the model asked for
+            // longest ago goes, which is a model loaded ahead before any a line asked for.
+            make_room("");
+        }
+        idle(BETWEEN, &mut saved);
+    }
+    log::write(&format!("loading ahead done: {count} model(s) in {:?} ({})", started.elapsed(), memory()));
+    loop {
+        idle(SAVE_EVERY, &mut saved);
+    }
 }
 
 /// The voice a token names: its model and speaker.
 #[derive(Clone)]
 struct Voice {
     model: Arc<Model>,
+    model_dir: String,
+    data_dir: String,
     speaker: i32,
     name: String,
 }
@@ -328,6 +655,8 @@ fn token_dword(token: &ISpObjectToken, name: PCWSTR) -> Option<u32> {
 impl ISpObjectWithToken_Impl for Engine_Impl {
     fn SetObjectToken(&self, ptoken: Ref<ISpObjectToken>) -> Result<()> {
         let token = ptoken.ok()?.clone();
+        // A line is coming (WoW sets up an engine for each): the preloader holds off.
+        LAST_LINE.store(since_start_ms(), Ordering::Relaxed);
         let started = Instant::now();
         let number = TOKENS.fetch_add(1, Ordering::Relaxed) + 1;
         let result = catch_unwind(AssertUnwindSafe(|| {
@@ -343,7 +672,7 @@ impl ISpObjectWithToken_Impl for Engine_Impl {
             if log::enabled() {
                 log::write(&format!("voice #{number} {name}: {:?} (from {})", started.elapsed(), caller()));
             }
-            Some(Voice { model, speaker, name })
+            Some(Voice { model, model_dir, data_dir, speaker, name })
         }));
         match result {
             Ok(Some(voice)) => {
@@ -447,6 +776,10 @@ impl Engine_Impl {
         }
         let base_rate = unsafe { site.GetRate() }.unwrap_or(0);
         let base_volume = unsafe { site.GetVolume() }.unwrap_or(100) as f32 / 100.0;
+        // A line heard, for the usage record; not the addon's warm-up lines, which it says at volume 0.
+        if base_volume > 0.0 && parts.iter().any(|part| matches!(part, Part::Say(run) if !run.text.trim().is_empty())) {
+            note_use(&voice.model_dir, &voice.data_dir);
+        }
         for part in parts {
             if aborted(site) {
                 return Ok(());
@@ -535,6 +868,8 @@ impl ISpTTSEngine_Impl for Engine_Impl {
                 fragment = frag.pNext;
             }
         }
+        LAST_LINE.store(since_start_ms(), Ordering::Relaxed);
+        let speaking = Counted::new(&SPEAKING);
         let result = match catch_unwind(AssertUnwindSafe(|| {
             let parts = unsafe { parts(fragments) };
             self.speak(parts, &site)
@@ -545,6 +880,8 @@ impl ISpTTSEngine_Impl for Engine_Impl {
                 Err(E_FAIL.into())
             }
         };
+        drop(speaking);
+        LAST_LINE.store(since_start_ms(), Ordering::Relaxed);
         if log::enabled() {
             log::write(&format!("speak done in {:?}", started.elapsed()));
         }
