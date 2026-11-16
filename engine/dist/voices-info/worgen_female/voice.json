@@ -23,7 +23,7 @@
     "Fenrae",
     "Citizen"
   ],
-  "recipe": 2,
+  "recipe": 3,
   "inference": {
     "noise_scale": 0.6,
     "length_scale": 1.0,
