@@ -610,10 +610,12 @@ begin
     SourceLabel.Caption := '';
 end;
 
-{ Next waits on the game page until a game is chosen. }
+{ Next waits on the game page until a game is chosen; not in a silent install, which chooses none:
+  Setup cannot click a disabled Next and would stop there ("Failed to proceed to next wizard page"),
+  and NextButtonClick takes the races it was given (/COMPONENTS) or every one. }
 procedure CurPageChanged(CurPageID: Integer);
 begin
-  if CurPageID = GamePage.ID then WizardForm.NextButton.Enabled := ChosenIndex >= 0;
+  if CurPageID = GamePage.ID then WizardForm.NextButton.Enabled := (ChosenIndex >= 0) or WizardSilent;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
