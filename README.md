@@ -55,10 +55,42 @@ To try one voice without installing anything: `engine\tools\Test-Voice.ps1 -Voic
 ## Linux (Wine, Proton)
 
 WoW run through Wine or Proton speaks with the same voicepack, engine and voices unchanged, installed
-in WoW's Wine prefix, plus SapiFix for what Wine's speech API lacks: [wine/](wine/README.md)
-(contributed by Dielerorn). On Windows, `wine\Build-Wine.ps1` (Visual Studio's C++ build tools, no
-administrator) builds `out\SpokenPlayersVoicepack-Linux.zip`; on Linux, unzip it and run
-`bash install.sh` in it.
+in WoW's Wine prefix, plus SapiFix for what Wine's speech API lacks (contributed by Dielerorn). Needs
+Proton 10 or newer, or Wine 10 or newer.
+
+### Install it
+
+1. Install the [Spoken Players addon](https://www.curseforge.com/wow/addons/spoken-players-chat-tts).
+2. Close WoW and Battle.net.
+3. Download [SpokenPlayersVoicepack-Linux.zip](https://spokenplayers.sahnet.ee/download/SpokenPlayersVoicepack-Linux.zip),
+   unzip it, open a terminal in its folder and run:
+
+   ```
+   bash install.sh
+   ```
+
+   It finds WoW's Wine prefix (Steam, also as a Flatpak or Snap, Lutris, Heroic, Faugus,
+   umu-launcher, plain Wine) and runs the Windows setup there with that prefix's own Proton or Wine,
+   then installs SapiFix and turns on WoW's `winePlatformTTS`. Nothing else needs installing.
+4. It asks which WoW you play (retail, WoW Forever or both) and downloads that game's voices from
+   Hugging Face (about 1.5 GB for WoW Forever, 3.5 GB for both), then checks silently that they speak.
+5. Start WoW and type `/sp`.
+
+Run `bash install.sh` again to update; `--uninstall` takes it all out again, `--prefix DIR` names
+WoW's prefix when it is not found. Every option, installing without a terminal, and what to do
+when it says nothing: [wine/README.md](wine/README.md).
+
+### Build it
+
+On Windows, with Visual Studio's C++ build tools (no administrator):
+
+```
+powershell -ExecutionPolicy Bypass -File wine\Build-Wine.ps1
+```
+
+It builds `out\SpokenPlayersVoicepack-Linux.zip`, with SapiFix signed by a certificate made for that
+build. `SpokenPlayersVoicepack-Wine.exe` in it installs the published setup, from the website, unless
+a `SpokenPlayersVoicepack-Setup.exe` lies beside it.
 
 ## License
 
