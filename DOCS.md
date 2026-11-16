@@ -19,6 +19,7 @@ speaks with small neural voice models, one per race and body type, each with sev
 | `installer/` | the Inno Setup script (`SpokenPlayersVoicepack.iss`), its name (`common.iss`) and pictures |
 | `tools/Build-Installer.ps1` | builds the setup into `out/`, the models downloaded from Hugging Face |
 | `tools/voice-info.sh` | writes `voices-info` from a folder of model packs |
+| `wine/` | the voicepack under Wine and Proton: SapiFix, the Wine setup, `install.sh` ([wine/README.md](wine/README.md)) |
 
 ## The engine
 
