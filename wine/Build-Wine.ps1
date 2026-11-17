@@ -10,13 +10,11 @@
 
       1. Compiles sapifix.dll (sapifix.c, sapifix.def) with MSVC, the C runtime linked in (/MT), so it
          needs nothing in a Wine prefix but Wine.
-      2. Signs it as engine\tools\Sign-Engine.ps1 signs the engine (WoW loads no SAPI DLL whose
-         signature it does not trust): a self-signed certificate for code signing only, made for this
-         build, its private key deleted straight after. Unlike the engine's, it is never trusted on
-         this PC: SapiFix is for Wine prefixes only, where SpokenPlayersVoicepack-Wine.exe trusts it.
-         Its public part (sapifix.cer) goes into the .exe.
-      3. Compiles SpokenPlayersVoicepack-Wine.exe (setup.c, setup.rc: the icon, sapifix.dll and
-         sapifix.cer as resources).
+      2. Signs it as engine\tools\Sign-Engine.ps1 signs the engine (WoW loads no SAPI DLL without a
+         signature, though it needn't be trusted): a self-signed certificate for code signing only,
+         made for this build, its private key deleted straight after. Trusted nowhere.
+      3. Compiles SpokenPlayersVoicepack-Wine.exe (setup.c, setup.rc: the icon and sapifix.dll as
+         resources).
       4. Zips the .exe, install.sh and README.md into one folder, SpokenPlayersVoicepack-Linux.
          A zip made on Windows keeps no Unix permissions, so players run it with `bash install.sh`.
 
@@ -71,7 +69,6 @@ $cflags = @('/nologo', '/O2', '/MT', '/W3', '/we4013', '/std:c11', '/utf-8', '/D
 # ---- 1. sapifix.dll ------------------------------------------------------------------------------
 
 $dll = Join-Path $Build 'sapifix.dll'
-$cer = Join-Path $Build 'sapifix.cer'
 Push-Location $Wine
 try {
     Invoke-Tool cl.exe ($cflags + @('/LD', 'sapifix.c', "/Fo$(Join-Path $Obj 'sapifix.obj')", "/Fe$dll",
@@ -89,7 +86,6 @@ Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -eq $Subject } |
 $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject $Subject -CertStoreLocation 'Cert:\CurrentUser\My' `
     -KeyExportPolicy NonExportable -KeyAlgorithm RSA -KeyLength 3072 -HashAlgorithm SHA256 -NotAfter (Get-Date).AddYears(10)
 try {
-    Export-Certificate -Cert $cert -FilePath $cer | Out-Null
     # Its status says the chain ends in a root this PC does not trust: as meant (step 2 above).
     Set-AuthenticodeSignature -FilePath $dll -Certificate $cert -HashAlgorithm SHA256 | Out-Null
 } finally {

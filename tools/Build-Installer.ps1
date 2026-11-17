@@ -96,13 +96,11 @@ function Quote([string]$text) { '"' + $text.Replace('{', '{{').Replace('"', '""'
 $iscc = Find-Iscc
 $dll = Join-Path $Dist 'spoken_voice.dll'
 if ((Get-Item $dll).Length -lt 100KB) { throw "the engine is only Git LFS's placeholder: run 'git lfs pull'" }
-# Signed by the engine's certificate (engine\dist\spoken_voice_engine.cer) and unchanged since. This PC
-# need not trust that certificate (UnknownError: its root is not trusted here); the setup makes the
-# PCs it installs on trust it.
+# Signed, and unchanged since (WoW wants a signature, not a trusted one: UnknownError, a root no PC
+# trusts, is as meant; HashMismatch is a DLL changed after signing).
 $signature = Get-AuthenticodeSignature $dll
-$engineCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2 (Join-Path $Dist 'spoken_voice_engine.cer')
-if ($signature.Status -notin 'Valid', 'UnknownError' -or $signature.SignerCertificate.Thumbprint -ne $engineCert.Thumbprint) {
-    throw "spoken_voice.dll is not signed by the engine's certificate ($($signature.Status)): run engine\tools\Sign-Engine.ps1 as administrator first"
+if (-not $signature.SignerCertificate -or $signature.Status -in 'NotSigned', 'HashMismatch') {
+    throw "spoken_voice.dll is not signed ($($signature.Status)): run engine\tools\Sign-Engine.ps1 first"
 }
 $models = @()
 foreach ($folder in $Folders.Values | Sort-Object Name) {
@@ -253,12 +251,9 @@ foreach ($m in $models) {
 }
 [IO.File]::WriteAllLines((Join-Path $Build 'voices.iss'), $iss, (New-Object Text.UTF8Encoding $true))
 
-# 4. The engine's certificate, from its signature, for the PCs it is installed on to trust.
-Export-Certificate -Cert $signature.SignerCertificate -FilePath (Join-Path $Build 'spoken_voice_engine.cer') | Out-Null
-
-# 5. The setup.
+# 4. The setup.
 $arguments = @('/Q', "/O$Out", "/DVersion=$Version", "/DDist=$Dist", "/DBuild=$Build",
-               "/DThumbprint=$($signature.SignerCertificate.Thumbprint)", (Join-Path $Installer 'SpokenPlayersVoicepack.iss'))
+               (Join-Path $Installer 'SpokenPlayersVoicepack.iss'))
 & $iscc @arguments
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup could not compile the setup (exit code $LASTEXITCODE)" }
 

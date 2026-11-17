@@ -1,6 +1,5 @@
 ; The voicepack's installer: SpokenPlayersVoicepack-Setup.exe. tools\Build-Installer.ps1 compiles it,
-; passing Version, Dist (engine\dist), Build (its folder with voices.iss and the engine's certificate)
-; and Thumbprint (the certificate's).
+; passing Version, Dist (engine\dist) and Build (its folder with voices.iss).
 ;
 ; The setup itself holds the engine, espeak-ng's data and each voice's small files; the models
 ; (~70 MB each) are downloaded from Hugging Face (Source, at the commit Revision) for the game chosen
@@ -56,7 +55,6 @@ Name: "custom"; Description: "The races chosen"; Flags: iscustom
 [Files]
 Source: "{#Dist}\spoken_voice.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Dist}\espeak-ng-data\*"; DestDir: "{app}\espeak-ng-data"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "{#Build}\spoken_voice_engine.cer"; DestDir: "{app}"; Flags: ignoreversion
 ; The engine's license (GPL-3.0, as espeak-ng's, which is built into it) and those of the rest of
 ; what is built into it, beside it.
 Source: "..\LICENSE"; DestDir: "{app}\licenses"; Flags: ignoreversion
@@ -84,19 +82,11 @@ Type: files; Name: "{app}\setup.ps1"
 Type: files; Name: "{app}\Install-SpokenVoices.ps1"
 Type: files; Name: "{app}\Uninstall Spoken Group.cmd"
 Type: files; Name: "{app}\manifest.json"
+; The engine's certificate, which older setups had this PC trust (UntrustOldCertificates).
+Type: files; Name: "{app}\spoken_voice_engine.cer"
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\voices"
-
-[Run]
-; WoW only loads a signed engine. Its certificate is self-made (its private key was deleted when it
-; signed the engine, so it vouches for this one file), hence trusted here.
-Filename: "{sys}\certutil.exe"; Parameters: "-f -addstore Root ""{app}\spoken_voice_engine.cer"""; StatusMsg: "Trusting the voice engine..."; Flags: runhidden
-Filename: "{sys}\certutil.exe"; Parameters: "-f -addstore TrustedPublisher ""{app}\spoken_voice_engine.cer"""; StatusMsg: "Trusting the voice engine..."; Flags: runhidden
-
-[UninstallRun]
-Filename: "{sys}\certutil.exe"; Parameters: "-delstore Root {#Thumbprint}"; RunOnceId: "UntrustRoot"; Flags: runhidden
-Filename: "{sys}\certutil.exe"; Parameters: "-delstore TrustedPublisher {#Thumbprint}"; RunOnceId: "UntrustPublisher"; Flags: runhidden
 
 
 [Code]
@@ -600,9 +590,37 @@ begin
     DelTree(Old, True, True, True);
 end;
 
+{ The engine's certificates in a trust store of the machine's (Root, TrustedPublisher), gone: older
+  setups had the PC trust the engine's (and engine\tools\Sign-Engine.ps1 the build PC's own). WoW only
+  wants the engine signed, not its signature trusted (tested in retail and WoW Forever, 2026-11-17), so
+  nothing is trusted any more. Straight from the registry, where the stores keep each certificate
+  (a "Blob" holding it, its name in plain letters): certutil is a stub in Wine. }
+procedure UntrustOldCertificates(Store: String);
+var
+  Key: String;
+  Names: TArrayOfString;
+  Blob: AnsiString;
+  I: Integer;
+begin
+  Key := 'SOFTWARE\Microsoft\SystemCertificates\' + Store + '\Certificates';
+  if not RegGetSubkeyNames(HKLM64, Key, Names) then Exit;
+  for I := 0 to GetArrayLength(Names) - 1 do
+    if RegQueryBinaryValue(HKLM64, Key + '\' + Names[I], 'Blob', Blob) and (Pos('Spoken Voice Engine', Blob) > 0) then begin
+      Log('No longer trusting an old engine certificate: ' + Names[I] + ' (' + Store + ')');
+      RegDeleteKeyIncludingSubkeys(HKLM64, Key + '\' + Names[I]);
+    end;
+end;
+
+procedure UntrustOldEngine;
+begin
+  UntrustOldCertificates('Root');
+  UntrustOldCertificates('TrustedPublisher');
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssInstall then begin
+    UntrustOldEngine;
     RemoveSpokenVoices;
     RemoveUnknownModels;
     RemoveOldSetup;
@@ -620,5 +638,8 @@ end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
-  if CurUninstallStep = usUninstall then RemoveSpokenVoices;
+  if CurUninstallStep = usUninstall then begin
+    RemoveSpokenVoices;
+    UntrustOldEngine;
+  end;
 end;

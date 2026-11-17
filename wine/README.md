@@ -82,9 +82,10 @@ Disabled by default as it can cause crashes"). Wine has a SAPI, but not all that
 `SpokenPlayersVoicepack-Wine.exe`, in the prefix:
 
 1. runs the voicepack's setup (beside it, else downloaded from spokenplayers.sahnet.ee);
-2. trusts the engine's certificate, which the setup does with `certutil`, a stub in Wine;
-3. trusts SapiFix's certificate (it is signed as the engine is: WoW loads no SAPI engine whose
-   signature it does not trust) and installs SapiFix (`sapifix.dll`, in `C:\Program Files\SapiFix`), the *TreatAs* class of SAPI's
+2. takes out the certificates older versions had the prefix trust. WoW loads no SAPI engine without
+   a signature, but it needn't be a trusted one, so the engine and SapiFix are signed and nothing is
+   trusted;
+3. installs SapiFix (`sapifix.dll`, in `C:\Program Files\SapiFix`), the *TreatAs* class of SAPI's
    SpVoice and SpStream, so WoW gets it where it asks for them. Its voice passes the speaking on
    to Wine's, the SAPI XML turned into SSML that Wine reads into the same rate, pitch and volume,
    split at the bookmarks, and raises the events itself; its stream writes the WAV, converting the
@@ -110,7 +111,7 @@ powershell -ExecutionPolicy Bypass -File wine\Build-Wine.ps1
 builds `SpokenPlayersVoicepack-Linux.zip` (`SpokenPlayersVoicepack-Wine.exe`, with `sapifix.dll`
 in it, `install.sh` and this file) into `out\`, its parts in `out\wine\`. It signs
 `sapifix.dll` as the engine is signed, with a certificate made for the build, its private key
-deleted straight after; no administrator, and this PC never trusts it.
+deleted straight after; no administrator, and nothing trusts it.
 
 | File | What it is |
 |---|---|

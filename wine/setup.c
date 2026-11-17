@@ -5,11 +5,12 @@
  *
  *  1. The voicepack's own setup, the one Windows runs (beside this file, else downloaded), where the
  *     player chooses the game and the voices are downloaded.
- *  2. The engine's certificate trusted, which that setup does with certutil, a stub in Wine.
- *  3. SapiFix (sapifix.dll, carried in this file) installed and registered: WoW's speech needs what
- *     it adds to Wine's SAPI (sapifix.c). Its certificate (carried too) trusted first: it is
- *     signed as the engine is. Then WoW told to speak with Windows' voices, which under Wine it
- *     does not by itself, and kept from what crashes it (set_up_wow).
+ *  2. The certificates older versions had the prefix trust, no longer trusted: WoW wants the engine
+ *     and SapiFix signed, not their signatures trusted (tested on Windows, 2026-11-17).
+ *  3. SapiFix (sapifix.dll, carried in this file, signed as the engine is) installed and
+ *     registered: WoW's speech needs what it adds to Wine's SAPI (sapifix.c). Then WoW told to speak
+ *     with Windows' voices, which under Wine it does not by itself, and kept from what crashes it
+ *     (set_up_wow).
  *  4. A voice check: a line said the way WoW says it (a bookmarked line, into a WAV, followed by its
  *     events), silently: the file is checked, never played, and deleted.
  *
@@ -266,47 +267,13 @@ static BOOL find_voicepack(WCHAR *dir, size_t dir_size, WCHAR *voice, size_t voi
     return found;
 }
 
-/* ---- 2. the certificates -------------------------------------------------------------------- */
+/* ---- 2. old certificates -------------------------------------------------------------------- */
 
+/* Older versions trusted the engine's and SapiFix's certificates (Root and TrustedPublisher of the
+ * machine, as certutil -addstore does: a store keeps each under its SHA-1 in hex). WoW only wants
+ * them signed, so nothing is trusted any more, and what was is taken out again. The voicepack's
+ * setup takes out the engine's itself (in the registry, so in Wine too). */
 static const WCHAR *trust_stores[] = { L"Root", L"TrustedPublisher" };
-
-/* Trusts a certificate as certutil -addstore does (Root and TrustedPublisher of the machine): a
- * store keeps a certificate as a "Blob" of properties, its SHA-1 (property 3) and itself (property
- * 32), each {id, 1, size} and its bytes. `thumbprint` gets its SHA-1 in hex. */
-static BOOL trust_der(const BYTE *der, DWORD size, WCHAR *thumbprint)
-{
-    WCHAR key_path[256];
-    BYTE sha1[20], *blob;
-    DWORD hash_size = sizeof(sha1), blob_size = 12 + sizeof(sha1) + 12 + size, i, header[3];
-    BOOL ok = TRUE;
-
-    if (!CryptHashCertificate(0, CALG_SHA1, 0, der, size, sha1, &hash_size) || !(blob = malloc(blob_size)))
-        return FALSE;
-    header[0] = 3; header[1] = 1; header[2] = sizeof(sha1);
-    memcpy(blob, header, 12);
-    memcpy(blob + 12, sha1, sizeof(sha1));
-    header[0] = 0x20; header[2] = size;
-    memcpy(blob + 12 + sizeof(sha1), header, 12);
-    memcpy(blob + 24 + sizeof(sha1), der, size);
-    for (i = 0; i < sizeof(sha1); i++) swprintf(thumbprint + i * 2, 3, L"%02X", sha1[i]);
-
-    for (i = 0; i < ARRAY_SIZE(trust_stores); i++)
-    {
-        HKEY key;
-
-        swprintf(key_path, ARRAY_SIZE(key_path), L"Software\\Microsoft\\SystemCertificates\\%ls\\Certificates\\%ls",
-                 trust_stores[i], thumbprint);
-        if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, key_path, 0, NULL, 0, KEY_WRITE | KEY_WOW64_64KEY, NULL, &key, NULL))
-        {
-            ok = FALSE;
-            continue;
-        }
-        if (RegSetValueExW(key, L"Blob", 0, REG_BINARY, blob, blob_size)) ok = FALSE;
-        RegCloseKey(key);
-    }
-    free(blob);
-    return ok;
-}
 
 static void untrust(const WCHAR *thumbprint)
 {
@@ -342,22 +309,8 @@ static BYTE *read_engine_certificate(const WCHAR *dir, DWORD *size)
     return der;
 }
 
-/* The engine's, beside it, which the voicepack's setup trusts with certutil, a stub in Wine. */
-static BOOL trust_certificate(const WCHAR *dir)
-{
-    WCHAR thumbprint[41];
-    DWORD size;
-    BYTE *der = read_engine_certificate(dir, &size);
-    BOOL ok = der && trust_der(der, size, thumbprint);
-
-    if (ok) say(L"The engine's certificate is trusted (%ls).", thumbprint);
-    else say(L"Could not trust the engine's certificate (%ls\\spoken_voice_engine.cer).", dir);
-    free(der);
-    return ok;
-}
-
-/* The engine's certificate's SHA-1 in hex, the key the trust stores keep it under (to untrust it as
- * the voicepack's uninstaller does with certutil, a stub in Wine). FALSE when there is none. */
+/* The SHA-1 in hex of the engine's certificate an older voicepack left beside it, the key the trust
+ * stores keep it under. FALSE when there is none. */
 static BOOL engine_thumbprint(const WCHAR *dir, WCHAR *thumbprint)
 {
     BYTE sha1[20], *der;
@@ -371,51 +324,36 @@ static BOOL engine_thumbprint(const WCHAR *dir, WCHAR *thumbprint)
     return ok;
 }
 
-/* ---- 3. SapiFix --------------------------------------------------------------------------- */
-
-#define SAPIFIX_KEY L"Software\\SapiFix"
-
-/* Its certificate, carried in this file: SapiFix is signed as the engine is (WoW loads no SAPI
- * engine whose signature it does not trust: DOCS.md), by Build-Wine.ps1, with a certificate made
- * for each build. The one trusted is noted under SAPIFIX_KEY, so the next build's replaces it and
- * uninstalling takes it out. */
-static BOOL trust_sapifix(void)
+/* The engine's certificate an older voicepack had the prefix trust (its file beside the engine, in
+ * `dir`): no longer trusted. The voicepack's setup does it too; this is for /novoicepack. */
+static void untrust_old_engine(const WCHAR *dir)
 {
-    HRSRC resource = FindResourceW(NULL, L"SAPIFIXCER", (LPCWSTR)RT_RCDATA);
-    WCHAR thumbprint[41], before[41];
-    DWORD bytes = sizeof(before);
-    const BYTE *der;
-    HKEY key;
+    WCHAR thumbprint[41];
 
-    if (!resource || !(der = LockResource(LoadResource(NULL, resource))))
+    if (engine_thumbprint(dir, thumbprint))
     {
-        say(L"This file carries no certificate for SapiFix: build it with wine\\Build-Wine.ps1.");
-        return FALSE;
+        untrust(thumbprint);
+        say(L"The engine's old certificate is no longer trusted (%ls).", thumbprint);
     }
-    if (!trust_der(der, SizeofResource(NULL, resource), thumbprint))
-    {
-        say(L"Could not trust SapiFix's certificate.");
-        return FALSE;
-    }
-    if (!RegGetValueW(HKEY_LOCAL_MACHINE, SAPIFIX_KEY, L"Certificate", RRF_RT_REG_SZ, NULL, before, &bytes) &&
-        wcscmp(before, thumbprint))
-        untrust(before);
-    if (!RegCreateKeyExW(HKEY_LOCAL_MACHINE, SAPIFIX_KEY, 0, NULL, 0, KEY_WRITE | KEY_WOW64_64KEY, NULL, &key, NULL))
-    {
-        RegSetValueExW(key, L"Certificate", 0, REG_SZ, (const BYTE *)thumbprint, (DWORD)((wcslen(thumbprint) + 1) * sizeof(WCHAR)));
-        RegCloseKey(key);
-    }
-    say(L"SapiFix's certificate is trusted (%ls).", thumbprint);
-    return TRUE;
 }
 
-static void untrust_sapifix(void)
+/* ---- 3. SapiFix --------------------------------------------------------------------------- */
+
+/* Where older versions noted the SapiFix certificate they had the prefix trust ("Certificate"). */
+#define SAPIFIX_KEY L"Software\\SapiFix"
+
+/* That certificate, no longer trusted: SapiFix is signed (by Build-Wine.ps1, a certificate made for
+ * each build), which is all WoW wants. */
+static void untrust_old_sapifix(void)
 {
     WCHAR thumbprint[41];
     DWORD bytes = sizeof(thumbprint);
 
     if (!RegGetValueW(HKEY_LOCAL_MACHINE, SAPIFIX_KEY, L"Certificate", RRF_RT_REG_SZ, NULL, thumbprint, &bytes))
+    {
         untrust(thumbprint);
+        say(L"SapiFix's old certificate is no longer trusted (%ls).", thumbprint);
+    }
     RegDeleteKeyExW(HKEY_LOCAL_MACHINE, SAPIFIX_KEY, KEY_WOW64_64KEY, 0);
 }
 
@@ -462,7 +400,7 @@ static BOOL install_sapifix(void)
         return FALSE;
     }
     size = SizeofResource(NULL, resource);
-    if (!trust_sapifix()) return FALSE;
+    untrust_old_sapifix();
     sapifix_path(dir, dll);
     CreateDirectoryW(dir, NULL);
 
@@ -514,14 +452,15 @@ static BOOL uninstall_sapifix(void)
     if (module) FreeLibrary(module);
     DeleteFileW(dll);
     RemoveDirectoryW(dir);
-    untrust_sapifix();
+    untrust_old_sapifix();
     say(L"SapiFix is out: %ls", dir);
     return TRUE;
 }
 
 /* The voicepack's own uninstaller (Inno Setup's unins000.exe), silently: the engine, the voices,
- * their registration and its settings, as uninstalling it on Windows does. Its certutil steps are
- * stubs in Wine, so the engine's certificate is untrusted here. TRUE when it is gone (or was not there). */
+ * their registration and its settings, as uninstalling it on Windows does. An older one's certutil
+ * steps are stubs in Wine, so the engine's certificate it trusted is untrusted here. TRUE when it is
+ * gone (or was not there). */
 #define VOICEPACK_UNINSTALL_KEY L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{761B8789-B864-4C4E-98B1-5A0519A0DAA9}_is1"
 
 static BOOL voicepack_installed(void)
@@ -957,7 +896,7 @@ int wmain(int argc, WCHAR **argv)
 
     if (!find_voicepack(dir, ARRAY_SIZE(dir), voice, ARRAY_SIZE(voice)))
         return test();
-    trust_certificate(dir);
+    untrust_old_engine(dir);
     if (!install_sapifix())
     {
         ask(MB_ICONERROR | MB_OK, L"SapiFix could not be installed: close World of Warcraft and run this again.");

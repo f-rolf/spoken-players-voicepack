@@ -101,12 +101,14 @@ line also goes to `OutputDebugString`. Over 8 MB, it moves to `engine.old.log`.
 
 ## Signing
 
-WoW only loads SAPI engines whose DLL has a trusted code signature; unsigned, the voices are listed but
-stay silent. (Windows itself does not ask for one.) `Sign-Engine.ps1` makes a self-signed certificate
-for code signing only, trusts it on the PC (Trusted Root and Trusted Publishers), signs the DLL, and
-deletes the private key, so the trusted certificate can never sign anything else. The setup installs
-that certificate's public part and trusts it on the PCs it installs on, and takes it out again on
-uninstall. A build is signed by whoever built it: the published setup by its publisher, yours by you.
+WoW only loads SAPI engines whose DLL has a code signature; unsigned, the voices are listed but stay
+silent. (Windows itself does not ask for one.) The signature needn't be trusted: signed by a
+certificate no PC trusts, the engine speaks (tested in retail and WoW Forever; WoW checks no trust
+for it). `Sign-Engine.ps1` makes a self-signed certificate for code signing only, signs the DLL, and
+deletes the private key, so the certificate can never sign anything else. Nothing is trusted, by the
+script or the setup; the setup takes out the engine certificates older setups had the PC trust (Root
+and Trusted Publishers). A build is signed by whoever built it: the published setup by its
+publisher, yours by you.
 
 ## The installer
 
@@ -129,7 +131,7 @@ uninstall. A build is signed by whoever built it: the published setup by its pub
   out, then registers the chosen ones, so nothing lingers. It remembers the game chosen and the races
   it offered (`HKLM\SOFTWARE\Spoken Players`: Game, Adjusted, Races), so a newer setup chooses the
   same and adds the game's races added since.
-- Uninstalling removes the engine, the voices, the models and the certificate.
+- Uninstalling removes the engine, the voices and the models.
 
 ## How WoW uses it
 

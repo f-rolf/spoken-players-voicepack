@@ -22,16 +22,18 @@ The first build downloads sherpa-onnx's prebuilt static libraries (its release 1
 
 ## 2. Sign it
 
-WoW only loads signed voice engines. In an administrator PowerShell, from the repository's folder:
+WoW only loads signed voice engines, though the signature needn't be trusted. In PowerShell, from the
+repository's folder:
 
 ```
 powershell -ExecutionPolicy Bypass -File engine\tools\Sign-Engine.ps1
 ```
 
-It makes a certificate good for code signing only, trusts it on this PC, signs
-`engine\dist\spoken_voice.dll`, then deletes the certificate's private key, so nothing else can ever be
-signed with it. Its public part goes to `engine\dist\spoken_voice_engine.cer`, which the setup has
-the PCs it installs on trust. `-Remove` takes the certificates out again. Sign again after every build.
+It makes a certificate good for code signing only, signs `engine\dist\spoken_voice.dll` with it, then
+deletes the certificate's private key, so nothing else can ever be signed with it. Nothing is trusted,
+and no administrator is needed. Run as administrator, it also takes out of the trust stores the
+engine certificates that it, or an older setup, once had the PC trust; `-Remove` does only that.
+Sign again after every build.
 
 ## 3. Build the installer
 
